@@ -220,7 +220,31 @@ export function MarketMatrix() {
           </TooltipContent>
         </Tooltip>
       ),
-      cell: info => info.getValue()?.toFixed(2) || "—",
+      cell: info => {
+        const val = info.getValue();
+        if (val === null) return "—";
+        
+        let bgColor = "";
+        let textColor = "text-zinc-500";
+        
+        if (val > 2) {
+          bgColor = "bg-emerald-500/20";
+          textColor = "text-emerald-400";
+        } else if (val >= 1) {
+          bgColor = "bg-emerald-500/10";
+          textColor = "text-emerald-500";
+        }
+        
+        return (
+          <span className={cn(
+            "px-2 py-1 rounded-md font-medium text-xs whitespace-nowrap",
+            bgColor,
+            textColor
+          )}>
+            {val.toFixed(2)}
+          </span>
+        );
+      },
     }),
     columnHelper.accessor("analytics.max_drawdown", {
       header: ({ column }) => (
