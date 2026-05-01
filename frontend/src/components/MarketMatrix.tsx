@@ -12,11 +12,18 @@ import {
 import { 
   LineChart, 
   Line, 
-  ResponsiveContainer 
+  ResponsiveContainer,
+  YAxis
 } from "recharts";
-import { ArrowUpDown, Loader2 } from "lucide-react";
+import { ArrowUpDown, Loader2, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface MatrixTickerData {
   symbol: string;
@@ -49,6 +56,35 @@ const PERIODS = [
   { label: "5Y", value: "5y" },
   { label: "Max", value: "max" },
 ];
+
+const Sparkline = React.memo(({ data }: { data: number[] }) => {
+  if (!data || data.length === 0) {
+    return <span className="text-zinc-800 text-[10px]">NO TREND</span>;
+  }
+
+  const sparkData = data.map((v, i) => ({ i, v }));
+  const isUp = sparkData.length > 1 && sparkData[sparkData.length - 1].v >= sparkData[0].v;
+  
+  return (
+    <div className="w-20 h-8">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={sparkData}>
+          <YAxis hide domain={['dataMin', 'dataMax']} />
+          <Line 
+            type="monotone" 
+            dataKey="v" 
+            stroke={isUp ? "#10b981" : "#e11d48"} 
+            strokeWidth={2} 
+            dot={false} 
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+});
+
+Sparkline.displayName = "Sparkline";
 
 export function MarketMatrix() {
   const [data, setData] = useState<MatrixResponse | null>(null);
@@ -100,12 +136,19 @@ export function MarketMatrix() {
     }),
     columnHelper.accessor("analytics.cagr", {
       header: ({ column }) => (
-        <button 
-          className="flex items-center gap-2 hover:text-[#10b981] transition-colors"
-          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-        >
-          CAGR <ArrowUpDown className="w-3 h-3" />
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button 
+              className="flex items-center gap-1.5 hover:text-[#10b981] transition-colors"
+              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            >
+              CAGR <Info className="w-3 h-3 text-zinc-600" /> <ArrowUpDown className="w-3 h-3" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            Compound Annual Growth Rate. The smoothed annualized return over the selected period.
+          </TooltipContent>
+        </Tooltip>
       ),
       cell: info => {
         const val = info.getValue();
@@ -140,11 +183,33 @@ export function MarketMatrix() {
       },
     }),
     columnHelper.accessor("analytics.sharpe_ratio", {
-      header: "Sharpe",
+      header: () => (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex items-center gap-1.5 cursor-help">
+              Sharpe <Info className="w-3 h-3 text-zinc-600" />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>
+            Measures risk-adjusted return. &gt;1 is good, &gt;2 is excellent. (Risk-free rate: 4%)
+          </TooltipContent>
+        </Tooltip>
+      ),
       cell: info => info.getValue()?.toFixed(2) || "—",
     }),
     columnHelper.accessor("analytics.max_drawdown", {
-      header: "Max DD",
+      header: () => (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex items-center gap-1.5 cursor-help">
+              Max DD <Info className="w-3 h-3 text-zinc-600" />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>
+            The largest peak-to-trough drop in value during the selected period.
+          </TooltipContent>
+        </Tooltip>
+      ),
       cell: info => {
         const val = info.getValue();
         if (val === null) return "—";
@@ -152,7 +217,18 @@ export function MarketMatrix() {
       },
     }),
     columnHelper.accessor("fundamentals.pe_ratio", {
-      header: "P/E",
+      header: () => (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex items-center gap-1.5 cursor-help">
+              P/E <Info className="w-3 h-3 text-zinc-600" />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>
+            Price-to-Earnings. How much you pay for $1 of company profit.
+          </TooltipContent>
+        </Tooltip>
+      ),
       cell: info => info.getValue()?.toFixed(1) || "—",
     }),
     columnHelper.accessor("fundamentals.dividend_yield", {
@@ -165,29 +241,7 @@ export function MarketMatrix() {
     }),
     columnHelper.accessor("sparkline", {
       header: "Trend (7D)",
-      cell: info => {
-        const sparklineData = info.getValue() || [];
-        if (sparklineData.length === 0) return <span className="text-zinc-800 text-[10px]">NO TREND</span>;
-        
-        const sparkData = sparklineData.map((v, i) => ({ i, v }));
-        const isUp = sparkData.length > 1 && sparkData[sparkData.length - 1].v >= sparkData[0].v;
-        return (
-          <div className="w-20 h-8">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={sparkData}>
-                <Line 
-                  type="monotone" 
-                  dataKey="v" 
-                  stroke={isUp ? "#10b981" : "#fb7185"} 
-                  strokeWidth={1.5} 
-                  dot={false} 
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        );
-      },
+      cell: info => <Sparkline data={info.getValue()} />,
     }),
   ], [tablePeriod]);
 
@@ -201,106 +255,108 @@ export function MarketMatrix() {
   });
 
   return (
-    <div className="mt-8 space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-1000">
-      {/* Table Header Section */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-1">
-        <div className="flex items-center gap-3">
-          <div className="w-1 h-6 bg-[#10b981] rounded-full shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
-          <h2 className="text-lg font-bold tracking-tight text-white">
-            Market Overview
-          </h2>
-          {data?.last_updated && !loading && (
-             <span className="text-[10px] uppercase tracking-widest text-zinc-600 font-medium">
-               Real-time Data
-             </span>
-          )}
-        </div>
-
-        <div className="flex bg-zinc-900/50 p-1 rounded-lg border border-zinc-800">
-          {PERIODS.map((p) => (
-            <Button
-              key={p.value}
-              size="sm"
-              variant="ghost"
-              onClick={() => setTablePeriod(p.value)}
-              className={cn(
-                "h-7 px-3 text-[10px] font-bold uppercase tracking-widest transition-all",
-                tablePeriod === p.value 
-                  ? "bg-zinc-800 text-[#10b981] shadow-sm" 
-                  : "text-zinc-500 hover:text-zinc-300"
-              )}
-            >
-              {p.label}
-            </Button>
-          ))}
-        </div>
-      </div>
-
-      <div className="relative rounded-xl border border-zinc-800 bg-[#09090b] overflow-hidden shadow-2xl">
-        {/* Loading Overlay */}
-        {loading && (
-          <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#09090b]/60 backdrop-blur-[2px] transition-all">
-            <div className="flex flex-col items-center gap-2">
-              <Loader2 className="w-8 h-8 text-[#10b981] animate-spin" />
-              <span className="text-[10px] uppercase tracking-[0.3em] text-zinc-500 font-bold">Synchronizing...</span>
-            </div>
+    <TooltipProvider>
+      <div className="mt-8 space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+        {/* Table Header Section */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-1">
+          <div className="flex items-center gap-3">
+            <div className="w-1 h-6 bg-[#10b981] rounded-full shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
+            <h2 className="text-lg font-bold tracking-tight text-white">
+              Market Overview
+            </h2>
+            {data?.last_updated && !loading && (
+               <span className="text-[10px] uppercase tracking-widest text-zinc-600 font-medium">
+                 Real-time Data
+               </span>
+            )}
           </div>
-        )}
 
-        <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
-          <table className="w-full text-sm text-left border-collapse min-w-[1000px]">
-            <thead className="bg-zinc-900/50 border-b border-zinc-800">
-              {table.getHeaderGroups().map(headerGroup => (
-                <tr key={headerGroup.id}>
-                  {headerGroup.headers.map((header, idx) => (
-                    <th 
-                      key={header.id} 
-                      className={cn(
-                        "px-4 py-4 font-medium text-zinc-500 uppercase tracking-widest text-[10px]",
-                        idx === 0 && "sticky left-0 z-20 bg-zinc-900"
-                      )}
-                    >
-                      {flexRender(header.column.columnDef.header, header.getContext())}
-                    </th>
-                  ))}
-                </tr>
-              ))}
-            </thead>
-            <tbody className={cn(loading && "opacity-20 transition-opacity")}>
-              {table.getRowModel().rows.map(row => {
-                const isIndex = row.original.symbol.startsWith("^");
-                return (
-                  <tr 
-                    key={row.id}
-                    className={cn(
-                      "border-b border-zinc-900/50 hover:bg-[#10b981]/5 transition-colors group",
-                      isIndex ? "bg-zinc-900/30" : ""
-                    )}
-                  >
-                    {row.getVisibleCells().map((cell, idx) => (
-                      <td 
-                        key={cell.id} 
+          <div className="flex bg-zinc-900/50 p-1 rounded-lg border border-zinc-800">
+            {PERIODS.map((p) => (
+              <Button
+                key={p.value}
+                size="sm"
+                variant="ghost"
+                onClick={() => setTablePeriod(p.value)}
+                className={cn(
+                  "h-7 px-3 text-[10px] font-bold uppercase tracking-widest transition-all",
+                  tablePeriod === p.value 
+                    ? "bg-zinc-800 text-[#10b981] shadow-sm" 
+                    : "text-zinc-500 hover:text-zinc-300"
+                )}
+              >
+                {p.label}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        <div className="relative rounded-xl border border-zinc-800 bg-[#09090b] overflow-hidden shadow-2xl">
+          {/* Loading Overlay */}
+          {loading && (
+            <div className="absolute inset-0 z-30 flex items-center justify-center bg-[#09090b]/60 backdrop-blur-[2px] transition-all">
+              <div className="flex flex-col items-center gap-2">
+                <Loader2 className="w-8 h-8 text-[#10b981] animate-spin" />
+                <span className="text-[10px] uppercase tracking-[0.3em] text-zinc-500 font-bold">Synchronizing...</span>
+              </div>
+            </div>
+          )}
+
+          <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
+            <table className="w-full text-sm text-left border-collapse min-w-[1000px]">
+              <thead className="bg-zinc-900/50 border-b border-zinc-800">
+                {table.getHeaderGroups().map(headerGroup => (
+                  <tr key={headerGroup.id}>
+                    {headerGroup.headers.map((header, idx) => (
+                      <th 
+                        key={header.id} 
                         className={cn(
-                          "px-4 py-4 text-zinc-300",
-                          idx === 0 && "sticky left-0 z-10 bg-[#09090b] border-r border-zinc-800 group-hover:bg-[#0f1715]"
+                          "px-4 py-4 font-medium text-zinc-500 uppercase tracking-widest text-[10px]",
+                          idx === 0 && "sticky left-0 z-20 bg-zinc-900"
                         )}
                       >
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                      </th>
                     ))}
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                ))}
+              </thead>
+              <tbody className={cn(loading && "opacity-20 transition-opacity")}>
+                {table.getRowModel().rows.map(row => {
+                  const isIndex = row.original.symbol.startsWith("^");
+                  return (
+                    <tr 
+                      key={row.id}
+                      className={cn(
+                        "border-b border-zinc-900/50 hover:bg-[#10b981]/5 transition-colors group",
+                        isIndex ? "bg-zinc-900/30" : ""
+                      )}
+                    >
+                      {row.getVisibleCells().map((cell, idx) => (
+                        <td 
+                          key={cell.id} 
+                          className={cn(
+                            "px-4 py-4 text-zinc-300",
+                            idx === 0 && "sticky left-0 z-10 bg-[#09090b] border-r border-zinc-800 group-hover:bg-[#0f1715]"
+                          )}
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
+        
+        {!loading && data?.last_updated && (
+          <p className="text-[9px] text-zinc-700 uppercase tracking-[0.2em] text-right px-1">
+            Internal Engine Update: {new Date(data.last_updated).toLocaleString()}
+          </p>
+        )}
       </div>
-      
-      {!loading && data?.last_updated && (
-        <p className="text-[9px] text-zinc-700 uppercase tracking-[0.2em] text-right px-1">
-          Internal Engine Update: {new Date(data.last_updated).toLocaleString()}
-        </p>
-      )}
-    </div>
+    </TooltipProvider>
   );
 }
