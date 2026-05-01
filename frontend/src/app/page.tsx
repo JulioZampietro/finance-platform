@@ -52,6 +52,8 @@ const COLORS = [
   "#8b5cf6", // Violet
 ];
 
+import { MarketMatrix } from "@/components/MarketMatrix";
+
 export default function Dashboard() {
   const [activeTicker, setActiveTicker] = useState("AAPL");
   const [comparisonTickers, setComparisonTickers] = useState<string[]>([]);
@@ -105,8 +107,7 @@ export default function Dashboard() {
     if (!searchInput) return;
     const normalized = searchInput.toUpperCase().trim();
     setActiveTicker(normalized);
-    setComparisonTickers([]); // Reset comparison when a new main ticker is set? Or keep it? 
-    // User logic usually implies View replaces main, Compare adds to list.
+    setComparisonTickers([]); 
     setSearchInput("");
   };
 
@@ -131,7 +132,6 @@ export default function Dashboard() {
   const yDomain = useMemo(() => {
     if (!batchData) return [-5, 5];
     const { global_min, global_max } = batchData.metadata;
-    // Set domain to keep the 'Zoomed' effect: [dataMin - 5, dataMax + 5]
     return [global_min - 5, global_max + 5];
   }, [batchData]);
 
@@ -272,7 +272,7 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        {/* Main Chart Card */}
+        {/* Main Chart Area */}
         <Card className="bg-[#09090b] border-zinc-800 overflow-hidden shadow-2xl">
           <CardHeader className="border-b border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
@@ -369,7 +369,7 @@ export default function Dashboard() {
 
                     <Area 
                       type="monotone" 
-                      dataKey={(p: any) => p[batchData.metadata.tickers[0]] || 0}
+                      dataKey={(p: any) => (p[batchData.metadata.tickers[0]] || 0)}
                       stroke="#10b981" 
                       strokeWidth={3}
                       fillOpacity={1} 
@@ -383,7 +383,7 @@ export default function Dashboard() {
                       <Area 
                         key={t}
                         type="monotone" 
-                        dataKey={(p: any) => p[t] || 0}
+                        dataKey={(p: any) => (p[t] || 0)}
                         stroke={COLORS[(idx + 1) % COLORS.length]} 
                         strokeWidth={2}
                         fillOpacity={1} 
@@ -427,6 +427,9 @@ export default function Dashboard() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Market Matrix Section */}
+        <MarketMatrix />
 
         {/* Footer */}
         <footer className="pt-10 border-t border-zinc-900 flex flex-col md:flex-row justify-between items-center gap-4 text-zinc-600 text-xs">

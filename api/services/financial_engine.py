@@ -4,11 +4,17 @@ import yfinance as yf
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
 from .ticker_service import normalize_ticker
+import concurrent.futures
 
 class FinancialMetrics(BaseModel):
     cagr: float
     volatility: float
     max_drawdown: float
+    sharpe_ratio: float
+    pe_ratio: Optional[float] = None
+    dividend_yield: Optional[float] = None
+    market_cap: Optional[int] = None
+    sparkline: List[float]
 
 class BenchmarkPoint(BaseModel):
     date: str
@@ -38,6 +44,34 @@ class BatchAnalyticsResponse(BaseModel):
     metadata: Metadata
 
 class FinancialEngine:
+    @staticmethod
+    def calculate_cagr(prices: pd.Series) -> float:
+        if len(prices) < 2: return 0.0
+        start_val, end_val = prices.iloc[0], prices.iloc[-1]
+        
+        # Calculate years between start and end
+        days = (prices.index[-1] - prices.index[0]).days
+        years = days / 365.25
+        
+        if years <= 0 or start_val <= 0: return 0.0
+        return float((end_val / start_val) ** (1 / years) - 1)
+
+    @staticmethod
+    def calculate_volatility(returns: pd.Series) -> float:
+        if len(returns) < 2: return 0.0
+        return float(returns.std() * np.sqrt(252))
+
+    @staticmethod
+    def calculate_max_drawdown(prices: pd.Series) -> float:
+        if len(prices) < 2: return 0.0
+        rolling_max = prices.cummax()
+        drawdown = (prices - rolling_max) / rolling_max
+        return float(drawdown.min())
+
+    @staticmethod
+    def calculate_sharpe_ratio(cagr: float, volatility: float, risk_free_rate: float = 0.04) -> float:
+        if volatility <= 0: return 0.0
+        return float((cagr - risk_free_rate) / volatility)
     def __init__(self, ticker: str, period: str = "1y"):
         self.ticker = normalize_ticker(ticker)
         self.period = period
@@ -182,20 +216,53 @@ class BatchFinancialEngine:
             print(f"Batch fetch error: {e}")
             return False
 
-    def get_batch_analytics(self, benchmark_symbol: Optional[str] = None) -> Dict[str, Any]:
-        if self.df is None or self.df.empty:
-            return {}
+    def _get_single_ticker_metrics(self, ticker: str):
+        """Helper to calculate complex metrics and fetch fundamentals in parallel"""
+        prices = self.df[ticker]
+        returns = prices.pct_change().dropna()
+        
+        cagr = FinancialEngine.calculate_cagr(prices)
+        vol = FinancialEngine.calculate_volatility(returns)
+        mdd = FinancialEngine.calculate_max_drawdown(prices)
+        sharpe = FinancialEngine.calculate_sharpe_ratio(cagr, vol)
+        
+        # Sparkline: Last 7 available prices
+        sparkline = [round(float(p), 2) for p in prices.tail(7).tolist()]
+        
+        # Fundamentals
+        fundamentals = {
+            "pe_ratio": None,
+            "dividend_yield": None,
+            "market_cap": None
+        }
+        
+        try:
+            info = yf.Ticker(ticker).info
+            fundamentals["pe_ratio"] = info.get("forwardPE") or info.get("trailingPE")
+            fundamentals["dividend_yield"] = info.get("dividendYield")
+            fundamentals["market_cap"] = info.get("marketCap")
+        except Exception as e:
+            print(f"Fundamentals fetch error for {ticker}: {e}")
+            
+        return ticker, {
+            "cagr": cagr,
+            "volatility": vol,
+            "max_drawdown": mdd,
+            "sharpe_ratio": sharpe,
+            "sparkline": sparkline,
+            **fundamentals
+        }
 
-        # 1. Calculate Metrics for each ticker
+    def get_batch_analytics(self, benchmark_symbol: Optional[str] = None):
+        if self.df is None: return None
+        
+        # 1. Parallel calculation of metrics and fundamentals
         results = {}
-        for ticker in self.tickers:
-            prices = self.df[ticker]
-            returns = prices.pct_change().dropna()
-            results[ticker] = {
-                "cagr": FinancialEngine.calculate_cagr(prices),
-                "volatility": FinancialEngine.calculate_volatility(returns),
-                "max_drawdown": FinancialEngine.calculate_max_drawdown(prices)
-            }
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.tickers)) as executor:
+            future_to_ticker = {executor.submit(self._get_single_ticker_metrics, t): t for t in self.tickers}
+            for future in concurrent.futures.as_completed(future_to_ticker):
+                ticker, metrics = future.result()
+                results[ticker] = metrics
 
         # 2. Add Benchmark if requested
         start_date, end_date = self.df.index[0], self.df.index[-1]

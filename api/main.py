@@ -2,8 +2,10 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from services.ticker_service import fetch_historical_data, TickerDataResponse
 from services.financial_engine import FinancialEngine, AnalyticsResponse, BatchFinancialEngine, BatchAnalyticsResponse
+from services.matrix_service import MatrixService
 
 app = FastAPI(title="Finance Analysis API")
+matrix_service = MatrixService()
 
 # Enable CORS for the frontend
 app.add_middleware(
@@ -66,6 +68,15 @@ async def get_ticker_analytics(
         return metrics
     except HTTPException as he:
         raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/matrix/overview")
+async def get_matrix_overview(
+    period: str = Query("5y", description="Period for matrix analytics (e.g., 1mo, ytd, 1y, 5y, max)")
+):
+    try:
+        return matrix_service.get_overview_matrix(period=period)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
