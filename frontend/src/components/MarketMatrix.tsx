@@ -15,9 +15,10 @@ import {
   ResponsiveContainer,
   YAxis
 } from "recharts";
-import { ArrowUpDown, Loader2, Info } from "lucide-react";
+import { ArrowUpDown, Loader2, Info, Plus, Search, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
@@ -44,6 +45,7 @@ interface MatrixTickerData {
 interface MatrixResponse {
   b3: MatrixTickerData[];
   global: MatrixTickerData[];
+  others: MatrixTickerData[];
   last_updated: string;
 }
 
@@ -90,13 +92,16 @@ export function MarketMatrix() {
   const [data, setData] = useState<MatrixResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [tablePeriod, setTablePeriod] = useState("5y");
+  const [userTickers, setUserTickers] = useState<string[]>([]);
+  const [tickerInput, setTickerInput] = useState("");
   const [sorting, setSorting] = useState<SortingState>([]);
 
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`http://localhost:8000/api/matrix/overview?period=${tablePeriod}`);
+        const tickersParam = userTickers.length > 0 ? `&add_tickers=${userTickers.join(",")}` : "";
+        const res = await fetch(`http://localhost:8000/api/matrix/overview?period=${tablePeriod}${tickersParam}`);
         const result = await res.json();
         setData(result);
       } catch (error) {
@@ -107,11 +112,28 @@ export function MarketMatrix() {
     };
 
     fetchData();
-  }, [tablePeriod]);
+  }, [tablePeriod, userTickers]);
+
+  const handleAddTicker = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!tickerInput) return;
+    const normalized = tickerInput.trim().toUpperCase();
+    if (userTickers.includes(normalized)) {
+      setTickerInput("");
+      return;
+    }
+    setUserTickers(prev => [normalized, ...prev]);
+    setTickerInput("");
+  };
+
+  const handleRemoveTicker = (symbol: string) => {
+    setUserTickers(prev => prev.filter(t => t !== symbol));
+  };
 
   const tableData = useMemo(() => {
     if (!data) return [];
-    return [...data.b3, ...data.global];
+    // User added tickers (others) appear first
+    return [...data.others, ...data.b3, ...data.global];
   }, [data]);
 
   const columns = useMemo(() => [
@@ -183,12 +205,15 @@ export function MarketMatrix() {
       },
     }),
     columnHelper.accessor("analytics.sharpe_ratio", {
-      header: () => (
+      header: ({ column }) => (
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className="flex items-center gap-1.5 cursor-help">
-              Sharpe <Info className="w-3 h-3 text-zinc-600" />
-            </div>
+            <button 
+              className="flex items-center gap-1.5 hover:text-[#10b981] transition-colors"
+              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            >
+              Sharpe <Info className="w-3 h-3 text-zinc-600" /> <ArrowUpDown className="w-3 h-3" />
+            </button>
           </TooltipTrigger>
           <TooltipContent>
             Measures risk-adjusted return. &gt;1 is good, &gt;2 is excellent. (Risk-free rate: 4%)
@@ -198,12 +223,15 @@ export function MarketMatrix() {
       cell: info => info.getValue()?.toFixed(2) || "—",
     }),
     columnHelper.accessor("analytics.max_drawdown", {
-      header: () => (
+      header: ({ column }) => (
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className="flex items-center gap-1.5 cursor-help">
-              Max DD <Info className="w-3 h-3 text-zinc-600" />
-            </div>
+            <button 
+              className="flex items-center gap-1.5 hover:text-[#10b981] transition-colors"
+              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            >
+              Max DD <Info className="w-3 h-3 text-zinc-600" /> <ArrowUpDown className="w-3 h-3" />
+            </button>
           </TooltipTrigger>
           <TooltipContent>
             The largest peak-to-trough drop in value during the selected period.
@@ -243,7 +271,30 @@ export function MarketMatrix() {
       header: "Trend (7D)",
       cell: info => <Sparkline data={info.getValue()} />,
     }),
-  ], [tablePeriod]);
+    columnHelper.display({
+      id: "actions",
+      header: "",
+      cell: info => {
+        const symbol = info.row.original.symbol;
+        const isB3 = data?.b3.some(t => t.symbol === symbol);
+        const isGlobal = data?.global.some(t => t.symbol === symbol);
+        const isOther = !isB3 && !isGlobal;
+
+        if (!isOther) return null;
+
+        return (
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={() => handleRemoveTicker(symbol)}
+            className="h-8 w-8 text-zinc-600 hover:text-rose-500 hover:bg-rose-500/10 transition-colors"
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+        );
+      },
+    }),
+  ], [tablePeriod, data]);
 
   const table = useReactTable({
     data: tableData,
@@ -289,6 +340,28 @@ export function MarketMatrix() {
               </Button>
             ))}
           </div>
+
+          <div className="w-[1px] h-6 bg-zinc-800 hidden sm:block mx-1" />
+
+          <form onSubmit={handleAddTicker} className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-600" />
+              <Input 
+                placeholder="Add Ticker (e.g. AAPL)"
+                value={tickerInput}
+                onChange={(e) => setTickerInput(e.target.value)}
+                className="h-8 w-[180px] pl-8 bg-zinc-900/50 border-zinc-800 text-xs focus-visible:ring-[#10b981]/50 focus-visible:border-[#10b981]/50 placeholder:text-zinc-700"
+              />
+            </div>
+            <Button 
+              type="submit" 
+              size="sm" 
+              variant="outline" 
+              className="h-8 w-8 p-0 border-zinc-800 bg-zinc-900/50 hover:bg-[#10b981]/10 hover:text-[#10b981] hover:border-[#10b981]/50"
+            >
+              <Plus className="w-4 h-4" />
+            </Button>
+          </form>
         </div>
 
         <div className="relative rounded-xl border border-zinc-800 bg-[#09090b] overflow-hidden shadow-2xl">
@@ -324,12 +397,17 @@ export function MarketMatrix() {
               <tbody className={cn(loading && "opacity-20 transition-opacity")}>
                 {table.getRowModel().rows.map(row => {
                   const isIndex = row.original.symbol.startsWith("^");
+                  const isB3 = data?.b3.some(t => t.symbol === row.original.symbol);
+                  const isGlobal = data?.global.some(t => t.symbol === row.original.symbol);
+                  const isOther = !isB3 && !isGlobal;
+
                   return (
                     <tr 
                       key={row.id}
                       className={cn(
                         "border-b border-zinc-900/50 hover:bg-[#10b981]/5 transition-colors group",
-                        isIndex ? "bg-zinc-900/30" : ""
+                        isIndex ? "bg-zinc-900/30" : "",
+                        isOther ? "bg-[#10b981]/5 border-l-2 border-emerald-500/50" : ""
                       )}
                     >
                       {row.getVisibleCells().map((cell, idx) => (

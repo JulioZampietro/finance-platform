@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from typing import Optional
 from services.ticker_service import fetch_historical_data, TickerDataResponse
 from services.financial_engine import FinancialEngine, AnalyticsResponse, BatchFinancialEngine, BatchAnalyticsResponse
 from services.matrix_service import MatrixService
@@ -73,10 +74,12 @@ async def get_ticker_analytics(
 
 @app.get("/api/matrix/overview")
 async def get_matrix_overview(
-    period: str = Query("5y", description="Period for matrix analytics (e.g., 1mo, ytd, 1y, 5y, max)")
+    period: str = Query("5y", description="Period for matrix analytics (e.g., 1mo, ytd, 1y, 5y, max)"),
+    add_tickers: Optional[str] = Query(None, description="Comma-separated list of additional tickers")
 ):
     try:
-        return matrix_service.get_overview_matrix(period=period)
+        tickers_list = add_tickers.split(",") if add_tickers else None
+        return matrix_service.get_overview_matrix(period=period, add_tickers=tickers_list)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

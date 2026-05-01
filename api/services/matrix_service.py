@@ -40,22 +40,11 @@ class MatrixService:
         max_drawdown = FinancialEngine.calculate_max_drawdown(prices)
 
         # 4. Sharpe Ratio (RF = 4%)
-        # Note: Sharpe ratio calculation usually depends on excess returns. 
-        # Using CAGR as the return metric for long term, but for short term we might need a different approach.
-        # However, following the pattern:
         returns = prices.pct_change().dropna()
         volatility = FinancialEngine.calculate_volatility(returns)
         
-        # If CAGR is not available, we can't use it for Sharpe in the current FinancialEngine implementation.
-        # Let's approximate return if CAGR is None for the sake of the formula, or just use total_return annualized.
-        # But if the user didn't specify, I'll follow the requirement.
-        # Wait, if CAGR is null, what should Sharpe be? 
-        # Usually Sharpe is (Ann. Return - RF) / Ann. Volatility.
-        # If we don't have CAGR, we might need to annualize the total return.
-        # But user said "only calculate CAGR if...". 
-        # I'll calculate an internal 'annualized_return' for Sharpe if needed, or just use CAGR if available.
-        
-        calc_return = cagr if cagr is not None else FinancialEngine.calculate_cagr(prices) # still need it for sharpe
+        # Sharpe calculation consistency
+        calc_return = cagr if cagr is not None else FinancialEngine.calculate_cagr(prices)
         sharpe_ratio = FinancialEngine.calculate_sharpe_ratio(calc_return, volatility, risk_free_rate=0.04)
 
         return {
@@ -118,10 +107,15 @@ class MatrixService:
                 "error": str(e)
             }
 
-    def get_overview_matrix(self, period: str = "5y") -> Dict[str, Any]:
-        """Returns the overview matrix for a given period, using cache if valid."""
+    def get_overview_matrix(self, period: str = "5y", add_tickers: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Returns the overview matrix for a given period and optional extra tickers."""
         now = datetime.now()
-        cache_key = f"overview_{period}"
+        
+        # Merge universes
+        extra = [normalize_ticker(t.strip().upper()) for t in add_tickers] if add_tickers else []
+        full_universe = list(dict.fromkeys(self.all_tickers + extra)) # deduplicate
+        
+        cache_key = f"overview_{period}_{','.join(sorted(full_universe))}"
         
         if cache_key in self.cache:
             data, timestamp = self.cache[cache_key]
@@ -130,14 +124,15 @@ class MatrixService:
 
         # Fetch in parallel
         results = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=len(self.all_tickers)) as executor:
-            future_to_ticker = {executor.submit(self._fetch_ticker_data, t, period): t for t in self.all_tickers}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(full_universe)) as executor:
+            future_to_ticker = {executor.submit(self._fetch_ticker_data, t, period): t for t in full_universe}
             for future in concurrent.futures.as_completed(future_to_ticker):
                 results.append(future.result())
 
         response = {
             "b3": [r for r in results if r["symbol"] in self.b3_tickers],
             "global": [r for r in results if r["symbol"] in self.global_tickers],
+            "others": [r for r in results if r["symbol"] not in self.all_tickers],
             "period": period,
             "last_updated": now.isoformat()
         }
